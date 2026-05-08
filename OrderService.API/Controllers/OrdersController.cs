@@ -16,17 +16,11 @@ public class OrdersController : ControllerBase
         _mediator = mediator;
     }
 
-    [HttpGet("search")]
-    public async Task<IActionResult> Search([FromQuery] string? customerName, CancellationToken cancellationToken)
+    [HttpGet("customer/{customerId}")]
+    public async Task<IActionResult> GetByCustomer(Guid customerId, CancellationToken cancellationToken)
     {
-        var query = new SearchOrdersQuery { CustomerName = customerName };
+        var query = new SearchOrdersQuery { CustomerId = customerId };
         var result = await _mediator.Send(query, cancellationToken);
-
-        if (!result.Success)
-        {
-            return BadRequest(result);
-        }
-
         return Ok(result);
     }
 
@@ -34,12 +28,6 @@ public class OrdersController : ControllerBase
     public async Task<IActionResult> Checkout([FromBody] CheckoutOrderCommand command, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(command, cancellationToken);
-
-        if (!result.Success)
-        {
-            return BadRequest(result);
-        }
-
         return Ok(result);
     }
 }
