@@ -12,18 +12,10 @@ public static class MappingExtensions
             Id = order.Id,
             OrderNumber = order.OrderNumber,
             TotalAmount = order.TotalAmount,
-            Status = (int)order.Status,
-            CustomerName = order.CustomerName,
-            CustomerEmail = order.CustomerEmail,
+            Status = order.Status.ToString(),
+            CustomerId = order.CustomerId,
             CreatedAt = order.CreatedAt,
-            Items = order.Items.Select(x => new OrderItemDto
-            {
-                Id = x.Id,
-                ProductName = x.ProductName,
-                Quantity = x.Quantity,
-                UnitPrice = x.UnitPrice,
-                TotalPrice = x.TotalPrice
-            }).ToList()
+            CheckedOutAt = order.CheckedOutAt
         };
     }
 
@@ -34,7 +26,7 @@ public static class MappingExtensions
             Id = payment.Id,
             OrderId = payment.OrderId,
             Amount = payment.Amount,
-            Status = (int)payment.Status,
+            Status = payment.Status.ToString(),
             PaymentMethod = payment.PaymentMethod,
             TransactionId = payment.TransactionId
         };
@@ -48,7 +40,7 @@ public static class MappingExtensions
             OrderId = invoice.OrderId,
             InvoiceNumber = invoice.InvoiceNumber,
             Amount = invoice.Amount,
-            IssuedDate = invoice.IssuedDate
+            IssuedAt = invoice.IssuedAt
         };
     }
 }

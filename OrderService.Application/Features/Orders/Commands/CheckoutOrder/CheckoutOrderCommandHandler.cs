@@ -1,12 +1,11 @@
 namespace OrderService.Application.Features.Orders.Commands.CheckoutOrder;
 
 using MediatR;
-using OrderService.Application.Common;
 using OrderService.Domain.Entities;
 using OrderService.Domain.Enums;
 using OrderService.Domain.Interfaces;
 
-public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand, Result<CheckoutOrderResponse>>
+public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand, CheckoutOrderResponse>
 {
     private readonly IUnitOfWork _unitOfWork;
 
@@ -15,22 +14,53 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<Result<CheckoutOrderResponse>> Handle(CheckoutOrderCommand request, CancellationToken cancellationToken)
+    public async Task<CheckoutOrderResponse> Handle(CheckoutOrderCommand request, CancellationToken cancellationToken)
     {
-        // TODO: Implement checkout logic
-        // 1. Validate order exists
-        // 2. Create payment record
-        // 3. Process payment via payment provider
-        // 4. Update order status
-        // 5. Publish domain events (payment succeeded)
-        // 6. Create outbox events for background workers
+        var order = await _unitOfWork.Orders.GetByIdAsync(request.OrderId, cancellationToken);
+        if (order == null)
+            throw new InvalidOperationException("Order not found");
 
-        var response = new CheckoutOrderResponse
+        if (order.Status != OrderStatus.Draft)
+            throw new InvalidOperationException("Order cannot be checked out");
+
+        var transactionId = Guid.NewGuid().ToString();
+
+        // Simulate payment (80% success)
+        var isSuccess = new Random().Next(100) < 80;
+        if (!isSuccess)
+            throw new InvalidOperationException("Payment declined");
+
+        // Create payment
+        var payment = new Payment
         {
-            OrderId = request.OrderId,
-            TransactionId = Guid.NewGuid().ToString()
+            OrderId = order.Id,
+            Amount = order.TotalAmount,
+            PaymentMethod = request.PaymentMethod,
+            TransactionId = transactionId,
+            Status = PaymentStatus.Succeeded,
+            ProcessedAt = DateTime.UtcNow
         };
 
-        return Result<CheckoutOrderResponse>.Ok(response, "Checkout initiated successfully");
+        order.Payment = payment;
+        order.Status = OrderStatus.Processing;
+        order.CheckedOutAt = DateTime.UtcNow;
+
+        // Create outbox event for background worker to process
+        var outboxEvent = new OutboxEvent
+        {
+            AggregateId = order.Id,
+            EventType = "PaymentSucceeded",
+            Payload = $"{{\"OrderId\":\"{order.Id}\",\"Amount\":{order.TotalAmount}}}"
+        };
+
+        await _unitOfWork.OutboxEvents.AddAsync(outboxEvent, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new CheckoutOrderResponse
+        {
+            OrderId = request.OrderId,
+            TransactionId = transactionId,
+            Message = "Payment successful"
+        };
     }
 }

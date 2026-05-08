@@ -1,11 +1,10 @@
 namespace OrderService.Application.Features.Orders.Queries.SearchOrders;
 
 using MediatR;
-using OrderService.Application.Common;
 using OrderService.Application.DTOs;
 using OrderService.Domain.Interfaces;
 
-public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, Result<List<OrderDto>>>
+public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, List<OrderDto>>
 {
     private readonly IUnitOfWork _unitOfWork;
 
@@ -14,14 +13,19 @@ public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, Resul
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<Result<List<OrderDto>>> Handle(SearchOrdersQuery request, CancellationToken cancellationToken)
+    public async Task<List<OrderDto>> Handle(SearchOrdersQuery request, CancellationToken cancellationToken)
     {
-        // TODO: Implement search logic
-        // 1. Validate input
-        // 2. Search orders by customer name if provided
-        // 3. Map to DTOs
-        // 4. Return results
+        var orders = await _unitOfWork.Orders.SearchByCustomerIdAsync(request.CustomerId ?? Guid.Empty, cancellationToken);
 
-        return Result<List<OrderDto>>.Ok(new List<OrderDto>(), "Search completed");
+        return orders.Select(o => new OrderDto
+        {
+            Id = o.Id,
+            OrderNumber = o.OrderNumber,
+            CustomerId = o.CustomerId,
+            TotalAmount = o.TotalAmount,
+            Status = o.Status.ToString(),
+            CreatedAt = o.CreatedAt,
+            CheckedOutAt = o.CheckedOutAt
+        }).ToList();
     }
 }
