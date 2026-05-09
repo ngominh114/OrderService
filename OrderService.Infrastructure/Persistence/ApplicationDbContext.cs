@@ -19,6 +19,29 @@ public class ApplicationDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        // Configuration details omitted for clarity
+
+        // Configure Money as an owned type for Order.Cost
+        modelBuilder.Entity<Order>()
+            .OwnsOne(o => o.Cost, money =>
+            {
+                money.Property(m => m.Amount).HasColumnName("CostAmount");
+                money.Property(m => m.Currency).HasColumnName("CostCurrency");
+            });
+
+        // Configure Money as an owned type for Payment.Amount
+        modelBuilder.Entity<Payment>()
+            .OwnsOne(p => p.Amount, money =>
+            {
+                money.Property(m => m.Amount).HasColumnName("PaymentAmount");
+                money.Property(m => m.Currency).HasColumnName("PaymentCurrency");
+            });
+
+        // Configure Money as an owned type for Invoice.Amount
+        modelBuilder.Entity<Invoice>()
+            .OwnsOne(i => i.Amount, money =>
+            {
+                money.Property(m => m.Amount).HasColumnName("InvoiceAmount");
+                money.Property(m => m.Currency).HasColumnName("InvoiceCurrency");
+            });
     }
 }

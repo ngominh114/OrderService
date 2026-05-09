@@ -85,7 +85,8 @@ public class OutboxWorker : BackgroundService
             OrderId = order.Id,
             CustomerId = order.CustomerId,
             Name = order.DisplayName,
-            Amount = order.Payment?.Amount ?? 0
+            Amount = order.Payment?.Amount.Amount ?? 0,
+            Currency = order.Payment?.Amount.Currency ?? "USD"
         };
 
         await mqService.PublishAsync("email-notifications", message, stoppingToken);
@@ -101,7 +102,8 @@ public class OutboxWorker : BackgroundService
         {
             OrderId = order.Id,
             Name = order.DisplayName,
-            Amount = order.Payment?.Amount ?? 0
+            Amount = order.Payment?.Amount.Amount ?? 0,
+            Currency = order.Payment?.Amount.Currency ?? "USD"
         };
 
         await mqService.PublishAsync("invoice-generation", message, stoppingToken);
@@ -118,7 +120,8 @@ public class OutboxWorker : BackgroundService
             OrderId = order.Id,
             Name = order.DisplayName,
             CustomerId = order.CustomerId,
-            TotalAmount = order.Payment?.Amount ?? 0,
+            Amount = order.Payment?.Amount.Amount ?? 0,
+            Currency = order.Payment?.Amount.Currency ?? "USD",
             Items = new List<ProductionItemMessage>()
         };
 
@@ -133,6 +136,7 @@ public class EmailNotificationMessage
     public Guid CustomerId { get; set; }
     public string Name { get; set; } = string.Empty;
     public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
 }
 
 public class InvoiceGenerationMessage
@@ -140,6 +144,7 @@ public class InvoiceGenerationMessage
     public Guid OrderId { get; set; }
     public string Name { get; set; } = string.Empty;
     public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
 }
 
 public class ProductionOrderMessage
@@ -147,7 +152,8 @@ public class ProductionOrderMessage
     public Guid OrderId { get; set; }
     public string Name { get; set; } = string.Empty;
     public Guid CustomerId { get; set; }
-    public decimal TotalAmount { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
     public List<ProductionItemMessage> Items { get; set; } = [];
 }
 
