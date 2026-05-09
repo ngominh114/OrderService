@@ -1,7 +1,9 @@
 using OrderService.API.Extensions;
 using OrderService.Application.Extensions;
 using OrderService.Infrastructure.Extensions;
+using OrderService.Infrastructure.Persistence;
 using OrderService.API.Workers;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +27,9 @@ builder.Services.AddAuthorizationPolicies();
 builder.Services.AddHostedService<OutboxWorker>();
 
 var app = builder.Build();
+
+// Initialize database - apply migrations and ensure database is created
+await app.InitializeDatabaseAsync();
 
 app.UseSwaggerDocumentation();
 app.UseHttpsRedirection();
