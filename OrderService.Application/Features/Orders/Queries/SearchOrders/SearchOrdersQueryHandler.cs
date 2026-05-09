@@ -23,8 +23,8 @@ public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, List<
         return [.. orders.Select(o => new OrderDto
         {
             Id = o.Id,
-            Name = o.DisplayName,
-            Cost = o.Cost,
+            DisplayName = o.DisplayName,
+            Price = o.Cost.Amount,
             CustomerId = o.CustomerId,
             Status = o.Status.ToString(),
             CreatedAt = o.CreatedAt,

@@ -1,14 +1,17 @@
 namespace OrderService.API.Controllers;
 
+using Asp.Versioning;
 using IdentityModel;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OrderService.API.Constants;
 using OrderService.Application.Features.Orders.Commands.CheckoutOrder;
 using OrderService.Application.Features.Orders.Queries.SearchOrders;
 
 [ApiController]
 [Route("api/[controller]")]
+[ApiVersion(ApiVersions.V1)]
 [Authorize]
 public class OrdersController : ControllerBase
 {

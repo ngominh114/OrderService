@@ -1,4 +1,6 @@
 using Serilog;
+using Asp.Versioning;
+using OrderService.API.Constants;
 using OrderService.Application.Extensions;
 using OrderService.Infrastructure.Extensions;
 using OrderService.API.Workers;
@@ -13,6 +15,16 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 builder.Host.UseSerilog();
+
+// Add API versioning
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(int.Parse(ApiVersions.V1));
+    options.ReportApiVersions = true;
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ApiVersionReader = new QueryStringApiVersionReader("api-version");
+})
+.AddMvc();
 
 // Add services
 builder.Services.AddApplicationServices();
