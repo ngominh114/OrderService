@@ -84,8 +84,8 @@ public class OutboxWorker : BackgroundService
         {
             OrderId = order.Id,
             CustomerId = order.CustomerId,
-            OrderNumber = order.OrderNumber,
-            Amount = order.TotalAmount
+            Name = order.DisplayName,
+            Amount = order.Payment?.Amount ?? 0
         };
 
         await mqService.PublishAsync("email-notifications", message, stoppingToken);
@@ -100,8 +100,8 @@ public class OutboxWorker : BackgroundService
         var message = new InvoiceGenerationMessage
         {
             OrderId = order.Id,
-            OrderNumber = order.OrderNumber,
-            Amount = order.TotalAmount
+            Name = order.DisplayName,
+            Amount = order.Payment?.Amount ?? 0
         };
 
         await mqService.PublishAsync("invoice-generation", message, stoppingToken);
@@ -116,9 +116,9 @@ public class OutboxWorker : BackgroundService
         var message = new ProductionOrderMessage
         {
             OrderId = order.Id,
-            OrderNumber = order.OrderNumber,
+            Name = order.DisplayName,
             CustomerId = order.CustomerId,
-            TotalAmount = order.TotalAmount,
+            TotalAmount = order.Payment?.Amount ?? 0,
             Items = new List<ProductionItemMessage>()
         };
 
@@ -131,21 +131,21 @@ public class EmailNotificationMessage
 {
     public Guid OrderId { get; set; }
     public Guid CustomerId { get; set; }
-    public string OrderNumber { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
     public decimal Amount { get; set; }
 }
 
 public class InvoiceGenerationMessage
 {
     public Guid OrderId { get; set; }
-    public string OrderNumber { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
     public decimal Amount { get; set; }
 }
 
 public class ProductionOrderMessage
 {
     public Guid OrderId { get; set; }
-    public string OrderNumber { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
     public Guid CustomerId { get; set; }
     public decimal TotalAmount { get; set; }
     public List<ProductionItemMessage> Items { get; set; } = [];

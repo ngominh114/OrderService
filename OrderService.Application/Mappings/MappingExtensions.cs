@@ -10,8 +10,8 @@ public static class MappingExtensions
         return new OrderDto
         {
             Id = order.Id,
-            OrderNumber = order.OrderNumber,
-            TotalAmount = order.TotalAmount,
+            DisplayName = order.DisplayName,
+            Price = order.Price,
             Status = order.Status.ToString(),
             CustomerId = order.CustomerId,
             CreatedAt = order.CreatedAt,

@@ -34,7 +34,7 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
         var payment = new Payment
         {
             OrderId = order.Id,
-            Amount = order.TotalAmount,
+            Amount = order.Price,
             PaymentMethod = request.PaymentMethod,
             TransactionId = transactionId,
             Status = PaymentStatus.Succeeded,
@@ -50,7 +50,7 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
         {
             AggregateId = order.Id,
             EventType = "PaymentSucceeded",
-            Payload = $"{{\"OrderId\":\"{order.Id}\",\"Amount\":{order.TotalAmount}}}"
+            Payload = $"{{\"OrderId\":\"{order.Id}\",\"Amount\":{order.Price}}}"
         };
 
         await _unitOfWork.OutboxEvents.AddAsync(outboxEvent, cancellationToken);

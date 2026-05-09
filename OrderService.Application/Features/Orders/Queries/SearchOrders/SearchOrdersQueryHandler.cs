@@ -15,17 +15,20 @@ public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, List<
 
     public async Task<List<OrderDto>> Handle(SearchOrdersQuery request, CancellationToken cancellationToken)
     {
-        var orders = await _unitOfWork.Orders.SearchByCustomerIdAsync(request.CustomerId ?? Guid.Empty, cancellationToken);
+        var orders = await _unitOfWork.Orders.SearchByCustomerIdAsync(
+            request.CustomerId,
+            request.OrderName,
+            cancellationToken);
 
-        return orders.Select(o => new OrderDto
+        return [.. orders.Select(o => new OrderDto
         {
             Id = o.Id,
-            OrderNumber = o.OrderNumber,
+            DisplayName = o.DisplayName,
+            Price = o.Price,
             CustomerId = o.CustomerId,
-            TotalAmount = o.TotalAmount,
             Status = o.Status.ToString(),
             CreatedAt = o.CreatedAt,
             CheckedOutAt = o.CheckedOutAt
-        }).ToList();
+        })];
     }
 }

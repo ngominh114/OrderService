@@ -5,5 +5,6 @@ using OrderService.Application.DTOs;
 
 public class SearchOrdersQuery : IRequest<List<OrderDto>>
 {
-    public Guid? CustomerId { get; set; }
+    public Guid CustomerId { get; set; }
+    public string? OrderName { get; set; }
 }
