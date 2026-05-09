@@ -11,9 +11,16 @@ public class OrderRepository : Repository<Order>, IOrderRepository
     {
     }
 
-    public async Task<Order?> GetByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default)
-        => await _dbSet.AsNoTracking().FirstOrDefaultAsync(o => o.OrderNumber == orderNumber, cancellationToken);
+    public async Task<IEnumerable<Order>> SearchByCustomerIdAsync(
+        Guid customerId,
+        string? orderName = "",
+        CancellationToken cancellationToken = default)
+    {
+        var query = _dbSet.AsNoTracking().Where(o => o.CustomerId == customerId);
 
-    public async Task<IEnumerable<Order>> SearchByCustomerIdAsync(Guid customerId, CancellationToken cancellationToken = default)
-        => await _dbSet.AsNoTracking().Where(o => o.CustomerId == customerId).ToListAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(orderName))
+            query = query.Where(o => o.DisplayName.Contains(orderName));
+
+        return await query.ToListAsync(cancellationToken);
+    }
 }
