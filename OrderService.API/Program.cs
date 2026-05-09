@@ -1,49 +1,32 @@
-using Serilog;
-using Asp.Versioning;
-using OrderService.API.Constants;
+using OrderService.API.Extensions;
 using OrderService.Application.Extensions;
 using OrderService.Infrastructure.Extensions;
 using OrderService.API.Workers;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Serilog
-Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Debug()
-    .WriteTo.Console()
-    .WriteTo.File("logs/orderservice-.txt", rollingInterval: RollingInterval.Day)
-    .CreateLogger();
-
-builder.Host.UseSerilog();
+// Configure logging
+builder.AddLogging();
 
 // Add API versioning
-builder.Services.AddApiVersioning(options =>
-{
-    options.DefaultApiVersion = new ApiVersion(int.Parse(ApiVersions.V1));
-    options.ReportApiVersions = true;
-    options.AssumeDefaultVersionWhenUnspecified = true;
-    options.ApiVersionReader = new QueryStringApiVersionReader("api-version");
-})
-.AddMvc();
+builder.Services.AddApiVersioningServices();
 
 // Add services
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerDocumentation();
+
+// Add authorization policies for JWT scopes
+builder.Services.AddAuthorizationPolicies();
 
 // Single unified outbox worker
 builder.Services.AddHostedService<OutboxWorker>();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
+app.UseSwaggerDocumentation();
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
