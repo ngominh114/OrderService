@@ -28,6 +28,12 @@ public class ApplicationDbContext : DbContext
                 money.Property(m => m.Currency).HasColumnName("CostCurrency");
             });
 
+        // Index for fast "contains" queries on DisplayName
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => new { o.CustomerId, o.DisplayName })
+            .IsUnique(false)
+            .HasDatabaseName("IX_Order_CustomerId_DisplayName");
+
         // Configure Money as an owned type for Payment.Amount
         modelBuilder.Entity<Payment>()
             .OwnsOne(p => p.Amount, money =>
