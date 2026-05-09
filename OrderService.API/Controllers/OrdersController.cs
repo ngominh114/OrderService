@@ -1,5 +1,6 @@
 namespace OrderService.API.Controllers;
 
+using IdentityModel;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,16 +20,16 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet("me")]
-    public async Task<IActionResult> GetMe([FromQuery] string? orderNumber, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetMe([FromQuery] string? orderName, CancellationToken cancellationToken)
     {
-        var customerId = User.FindFirst("sub")?.Value;
+        var customerId = User.FindFirst(JwtClaimTypes.Subject)?.Value;
         if (string.IsNullOrEmpty(customerId))
             return Unauthorized("Customer ID not found in token");
 
         var query = new SearchOrdersQuery
         {
             CustomerId = Guid.Parse(customerId),
-            OrderName = orderNumber
+            OrderName = orderName
         };
         var result = await _mediator.Send(query, cancellationToken);
         return Ok(result);
