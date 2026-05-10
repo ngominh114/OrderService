@@ -1,5 +1,6 @@
 namespace OrderService.API.Workers;
 
+using OrderService.Domain.Constants;
 using OrderService.Domain.Interfaces;
 using OrderService.Infrastructure.Messaging;
 
@@ -62,9 +63,18 @@ public class OutboxWorker : BackgroundService
 
         switch (evt.EventType)
         {
-            case "PaymentSucceeded":
+            case OutboxEventTypes.PaymentSucceeded: // backward compatibility for older events
                 await PublishEmailNotificationAsync(order, mqService, stoppingToken);
                 await PublishInvoiceGenerationAsync(order, mqService, stoppingToken);
+                await PublishProductionOrderAsync(order, mqService, stoppingToken);
+                break;
+            case OutboxEventTypes.EmailNotificationRequested:
+                await PublishEmailNotificationAsync(order, mqService, stoppingToken);
+                break;
+            case OutboxEventTypes.InvoiceGenerationRequested:
+                await PublishInvoiceGenerationAsync(order, mqService, stoppingToken);
+                break;
+            case OutboxEventTypes.ProductionOrderRequested:
                 await PublishProductionOrderAsync(order, mqService, stoppingToken);
                 break;
         }

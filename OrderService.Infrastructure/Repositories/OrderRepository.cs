@@ -2,6 +2,7 @@ namespace OrderService.Infrastructure.Repositories;
 
 using Microsoft.EntityFrameworkCore;
 using OrderService.Domain.Entities;
+using OrderService.Domain.Enums;
 using OrderService.Domain.Interfaces;
 using OrderService.Infrastructure.Persistence;
 
@@ -15,26 +16,32 @@ public class OrderRepository : Repository<Order>, IOrderRepository
     {
         return _dbSet.AsNoTracking().Where(o => o.CustomerId == customerId);
     }
+
+    public async Task<bool> TryTransitionToPaymentPendingAsync(
+        Guid customerId,
+        Guid orderId,
         CancellationToken cancellationToken = default)
     {
-        var query = _dbSet.AsNoTracking().Where(o => o.CustomerId == criteria.CustomerId);
+        var affectedRows = await _dbSet
+            .Where(o => o.Id == orderId
+                        && o.CustomerId == customerId
+                        && (o.Status == OrderStatus.Draft || o.Status == OrderStatus.PaymentFailed))
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(o => o.Status, OrderStatus.PaymentPending),
+                cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(criteria.OrderName))
-            query = query.Where(o => o.DisplayName.Contains(criteria.OrderName));
+        return affectedRows == 1;
+    }
 
-        if (criteria.Status.HasValue)
-            query = query.Where(o => o.Status == criteria.Status);
-
-        if (criteria.CreatedFrom.HasValue)
-            query = query.Where(o => o.CreatedAt >= criteria.CreatedFrom);
-
-        if (criteria.CreatedTo.HasValue)
-            query = query.Where(o => o.CreatedAt <= criteria.CreatedTo);
-
-        // Apply pagination
-        query = query.Skip((criteria.Page - 1) * criteria.PageSize)
-                     .Take(criteria.PageSize);
-
-        return await query.ToListAsync(cancellationToken);
+    public async Task<Order?> GetByIdAndCustomerIdAsync(
+        Guid customerId,
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbSet
+            .Include(o => o.Payment)
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.CustomerId == customerId, cancellationToken);
     }
 }
+
+

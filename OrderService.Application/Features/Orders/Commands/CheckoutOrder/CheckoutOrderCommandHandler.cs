@@ -31,9 +31,6 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
         if (order == null)
             throw new InvalidOperationException("Order not found");
 
-        if (!_paymentProcessorFactory.IsSupported(request.PaymentMethod))
-            throw new InvalidOperationException("Unsupported payment method");
-
         if (order.Payment?.IdempotencyKey == request.IdempotencyKey)
         {
             return new CheckoutOrderResponse

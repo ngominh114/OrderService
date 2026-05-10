@@ -40,7 +40,6 @@ public class OrdersController : ControllerBase
             Page = page,
             PageSize = pageSize
         };
-
         query.Normalize();
 
         var result = await _mediator.Send(query, cancellationToken);
@@ -49,9 +48,19 @@ public class OrdersController : ControllerBase
 
     [HttpPost("checkout")]
     [Authorize(Policy = "OrderCheckout")]
-    public async Task<IActionResult> Checkout([FromBody] CheckoutOrderCommand command, CancellationToken cancellationToken)
+    public async Task<IActionResult> Checkout(
+        [FromBody] CheckoutOrderCommand command,
+        CancellationToken cancellationToken)
     {
+        var customerId = User.FindFirst(JwtClaimTypes.Subject)?.Value;
+        if (string.IsNullOrEmpty(customerId))
+            return Unauthorized("Customer ID not found in token");
+
+        command.CustomerId = Guid.Parse(customerId);
+
         var result = await _mediator.Send(command, cancellationToken);
         return Ok(result);
     }
 }
+
+
