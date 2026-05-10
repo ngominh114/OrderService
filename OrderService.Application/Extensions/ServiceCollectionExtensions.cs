@@ -10,8 +10,6 @@ public static class ServiceCollectionExtensions
         services.AddMediatR(cfg =>
         {
             cfg.RegisterServicesFromAssembly(typeof(ServiceCollectionExtensions).Assembly);
-
-            // Register validation behavior for all requests
         });
 
         return services;

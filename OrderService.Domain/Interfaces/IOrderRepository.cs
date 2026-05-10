@@ -4,5 +4,5 @@ using OrderService.Domain.Entities;
 
 public interface IOrderRepository : IRepository<Order>
 {
-    Task<IEnumerable<Order>> SearchAsync(OrderSearchCriteria criteria, CancellationToken cancellationToken = default);
+    IQueryable<Order> GetByCustomerId(Guid customerId);
 }

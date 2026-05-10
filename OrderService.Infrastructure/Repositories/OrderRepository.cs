@@ -11,8 +11,10 @@ public class OrderRepository : Repository<Order>, IOrderRepository
     {
     }
 
-    public async Task<IEnumerable<Order>> SearchAsync(
-        OrderSearchCriteria criteria,
+    public IQueryable<Order> GetByCustomerId(Guid customerId)
+    {
+        return _dbSet.AsNoTracking().Where(o => o.CustomerId == customerId);
+    }
         CancellationToken cancellationToken = default)
     {
         var query = _dbSet.AsNoTracking().Where(o => o.CustomerId == criteria.CustomerId);
