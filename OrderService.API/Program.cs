@@ -33,6 +33,7 @@ await app.InitializeDatabaseAsync();
 
 app.UseSwaggerDocumentation();
 app.UseHttpsRedirection();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
