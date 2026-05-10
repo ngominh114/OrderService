@@ -3,18 +3,18 @@ namespace OrderService.Application.Features.Orders.Commands.CheckoutOrder;
 using MediatR;
 using OrderService.Application.Interfaces;
 using OrderService.Application.Mappings;
-using OrderService.Domain.Constants;
 using OrderService.Domain.Entities;
 using OrderService.Domain.Enums;
 using OrderService.Domain.Interfaces;
-using System.Text.Json;
 
 public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand, CheckoutOrderResponse>
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPaymentProcessorFactory _paymentProcessorFactory;
 
-    public CheckoutOrderCommandHandler(IUnitOfWork unitOfWork, IPaymentProcessorFactory paymentProcessorFactory)
+    public CheckoutOrderCommandHandler(
+        IUnitOfWork unitOfWork,
+        IPaymentProcessorFactory paymentProcessorFactory)
     {
         _unitOfWork = unitOfWork;
         _paymentProcessorFactory = paymentProcessorFactory;
@@ -128,36 +128,9 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
             order.Status = OrderStatus.Processing;
             order.CheckedOutAt = DateTime.UtcNow;
 
-            var payload = JsonSerializer.Serialize(new
-            {
-                OrderId = order.Id,
-                CustomerId = order.CustomerId,
-                Amount = order.Cost.Amount,
-                Currency = order.Cost.Currency,
-                paymentResult.TransactionId
-            });
-
-            // Create dedicated outbox events for downstream actions.
-            productionOutbox = new OutboxEvent
-            {
-                AggregateId = order.Id,
-                EventType = OutboxEventTypes.ProductionOrderRequested,
-                Payload = payload
-            };
-
-            invoiceOutbox = new OutboxEvent
-            {
-                AggregateId = order.Id,
-                EventType = OutboxEventTypes.InvoiceGenerationRequested,
-                Payload = payload
-            };
-
-            emailOutbox = new OutboxEvent
-            {
-                AggregateId = order.Id,
-                EventType = OutboxEventTypes.EmailNotificationRequested,
-                Payload = payload
-            };
+            productionOutbox = CheckoutOutboxEventFactory.CreateProductionOrderRequested(order, paymentResult.TransactionId);
+            invoiceOutbox = CheckoutOutboxEventFactory.CreateInvoiceGenerationRequested(order);
+            emailOutbox = CheckoutOutboxEventFactory.CreateEmailNotificationRequested(order);
 
             await _unitOfWork.OutboxEvents.AddAsync(productionOutbox, cancellationToken);
 
