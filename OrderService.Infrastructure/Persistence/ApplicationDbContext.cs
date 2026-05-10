@@ -62,6 +62,10 @@ public class ApplicationDbContext : DbContext
                 .IsRequired()
                 .HasDefaultValueSql("GETUTCDATE()");
 
+            entity.Property(e => e.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken();
+
             entity.Property(e => e.ImageIds)
                 .IsRequired()
                 .HasConversion(
@@ -144,10 +148,10 @@ public class ApplicationDbContext : DbContext
                 .IsUnique()
                 .HasDatabaseName("IX_Payment_OrderId");
 
-            entity.HasIndex(e => e.IdempotencyKey)
+            entity.HasIndex(e => new { e.OrderId, e.IdempotencyKey })
                 .IsUnique()
                 .HasFilter("[IdempotencyKey] IS NOT NULL")
-                .HasDatabaseName("IX_Payment_IdempotencyKey");
+                .HasDatabaseName("IX_Payment_OrderId_IdempotencyKey");
         });
 
         // ===== INVOICE CONFIGURATION =====

@@ -8,5 +8,6 @@ public enum OrderStatus
     Failed = 4,
     Cancelled = 5,
     PaymentPending = 6,
-    PaymentFailed = 7
+    PaymentFailed = 7,
+    PaymentVerificationPending = 8
 }

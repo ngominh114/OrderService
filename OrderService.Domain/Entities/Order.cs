@@ -13,6 +13,7 @@ public class Order
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CheckedOutAt { get; set; }
     public int[] ImageIds { get; set; } = [];
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 
     public Customer? Customer { get; set; }
     public Payment? Payment { get; set; }
