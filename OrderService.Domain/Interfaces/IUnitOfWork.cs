@@ -9,5 +9,9 @@ public interface IUnitOfWork : IDisposable
     IRepository<Invoice> Invoices { get; }
     IRepository<OutboxEvent> OutboxEvents { get; }
 
+    Task ExecuteTransactionAsync(
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken = default);
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

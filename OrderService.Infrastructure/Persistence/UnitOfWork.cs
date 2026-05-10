@@ -26,6 +26,24 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<OutboxEvent> OutboxEvents 
         => _outboxEventRepository ??= new Repository<OutboxEvent>(_context);
 
+    public async Task ExecuteTransactionAsync(
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken = default)
+    {
+        await using var tx = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            await operation(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         => await _context.SaveChangesAsync(cancellationToken);
 

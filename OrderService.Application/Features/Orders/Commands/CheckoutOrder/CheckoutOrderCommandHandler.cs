@@ -22,55 +22,57 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
 
     public async Task<CheckoutOrderResponse> Handle(CheckoutOrderCommand request, CancellationToken cancellationToken)
     {
-        // Validate order exists AND belongs to the requesting customer (single query)
-        var order = await _unitOfWork.Orders.GetByIdAndCustomerIdAsync(
-            request.CustomerId,
-            request.OrderId,
-            cancellationToken);
+        var order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, cancellationToken);
 
-        if (order == null)
-            throw new InvalidOperationException("Order not found");
+        var idempotentResponse = GetIdempotentResponse(order, request);
+        if (idempotentResponse != null)
+            return idempotentResponse;
 
-        if (order.Payment?.IdempotencyKey == request.IdempotencyKey)
+        ValidateCheckoutEligibility(order);
+
+        IPaymentProcessor paymentProcessor;
+        try
         {
-            return new CheckoutOrderResponse
-            {
-                OrderId = request.OrderId,
-                TransactionId = order.Payment.TransactionId,
-                Message = order.Payment.Status == PaymentStatus.Succeeded
-                    ? "Payment already processed"
-                    : "Payment request already processed"
-            };
+            paymentProcessor = _paymentProcessorFactory.GetProcessor(request.PaymentMethod);
+        }
+        catch (NotSupportedException ex)
+        {
+            throw new InvalidOperationException("Unsupported payment method", ex);
         }
 
-        // - Draft/PaymentFailed: can start a payment attempt
-        // - PaymentPending/Processing/Completed/Cancelled: block new attempts
-        var canAttemptPayment =
-            order.Status == OrderStatus.Draft ||
-            order.Status == OrderStatus.PaymentFailed;
-        if (!canAttemptPayment)
-            throw new InvalidOperationException("Order is not eligible for payment");
+        await _unitOfWork.ExecuteTransactionAsync(async ct =>
+        {
+            order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, ct);
 
-        if (order.Payment?.Status == PaymentStatus.Succeeded)
-            throw new InvalidOperationException("Order has already been paid successfully");
+            ValidateCheckoutEligibilityForTransition(order);
 
-        var paymentProcessor = _paymentProcessorFactory.GetProcessor(request.PaymentMethod);
+            order.Status = OrderStatus.PaymentPending;
 
-        // Mark order as payment in-progress with atomic transition to avoid concurrent checkouts
-        var transitioned = await _unitOfWork.Orders.TryTransitionToPaymentPendingAsync(
-            request.CustomerId,
-            request.OrderId,
-            cancellationToken);
+            if (order.Payment == null)
+            {
+                order.Payment = new Payment
+                {
+                    OrderId = order.Id,
+                    Amount = order.Cost,
+                    PaymentMethod = request.PaymentMethod,
+                    IdempotencyKey = request.IdempotencyKey,
+                    TransactionId = string.Empty,
+                    Status = PaymentStatus.Pending
+                };
+            }
+            else
+            {
+                order.Payment.PaymentMethod = request.PaymentMethod;
+                order.Payment.IdempotencyKey = request.IdempotencyKey;
+                order.Payment.Status = PaymentStatus.Pending;
+                order.Payment.FailureReason = null;
+                order.Payment.ProcessedAt = null;
+            }
 
-        if (!transitioned)
-            throw new InvalidOperationException("Order is currently being checked out");
-
-        order.Status = OrderStatus.PaymentPending;
+            await _unitOfWork.SaveChangesAsync(ct);
+        }, cancellationToken);
 
         PaymentProcessingResult paymentResult;
-        OutboxEvent? productionOutbox = null;
-        OutboxEvent? invoiceOutbox = null;
-        OutboxEvent? emailOutbox = null;
         try
         {
             paymentResult = await paymentProcessor.ProcessAsync(
@@ -84,61 +86,70 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
                 },
                 cancellationToken);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is TimeoutException or IOException or HttpRequestException or TaskCanceledException)
         {
-            order.Status = OrderStatus.PaymentFailed;
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException("Payment provider call failed");
+            await _unitOfWork.ExecuteTransactionAsync(async ct =>
+            {
+                order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, ct);
+
+                order.Status = OrderStatus.PaymentVerificationPending;
+
+                if (order.Payment != null)
+                {
+                    order.Payment.Status = PaymentStatus.VerificationPending;
+                    order.Payment.FailureReason = "Payment result unknown due to provider timeout/network failure";
+                    order.Payment.ProcessedAt = DateTime.UtcNow;
+                }
+
+                await _unitOfWork.SaveChangesAsync(ct);
+            }, cancellationToken);
+
+            throw new InvalidOperationException(
+                "Payment result is unknown. Order moved to PaymentVerificationPending for reconciliation.",
+                ex);
+        }
+
+        var payment = paymentResult.ToPaymentEntity(
+            order.Id,
+            request.PaymentMethod,
+            request.IdempotencyKey,
+            order.Cost.Amount,
+            order.Cost.Currency);
+
+        if (!paymentResult.IsSuccess)
+        {
+            await _unitOfWork.ExecuteTransactionAsync(async ct =>
+            {
+                order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, ct);
+
+                UpsertPayment(order, payment, request.IdempotencyKey);
+                order.Status = OrderStatus.PaymentFailed;
+                await _unitOfWork.SaveChangesAsync(ct);
+            }, cancellationToken);
+
+            throw new InvalidOperationException(paymentResult.FailureReason ?? "Payment failed");
         }
 
         try
         {
-            var payment = paymentResult.ToPaymentEntity(
-                order.Id,
-                request.PaymentMethod,
-                request.IdempotencyKey,
-                order.Cost.Amount,
-                order.Cost.Currency);
-
-            if (order.Payment == null)
+            await _unitOfWork.ExecuteTransactionAsync(async ct =>
             {
-                order.Payment = payment;
-            }
-            else
-            {
-                // One-to-one Payment row already exists -> update latest attempt result
-                order.Payment.PaymentMethod = payment.PaymentMethod;
-                order.Payment.TransactionId = payment.TransactionId;
-                order.Payment.Status = payment.Status;
-                order.Payment.FailureReason = payment.FailureReason;
-                order.Payment.ProcessedAt = payment.ProcessedAt;
-                order.Payment.Amount = payment.Amount;
-                order.Payment.IdempotencyKey = request.IdempotencyKey;
-            }
+                order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, ct);
 
-            if (!paymentResult.IsSuccess)
-            {
-                order.Status = OrderStatus.PaymentFailed;
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                UpsertPayment(order, payment, request.IdempotencyKey);
+                order.Status = OrderStatus.Processing;
+                order.CheckedOutAt = DateTime.UtcNow;
 
-                throw new InvalidOperationException(
-                    paymentResult.FailureReason ?? "Payment failed");
-            }
+                var productionOutbox = CheckoutOutboxEventFactory.CreateProductionOrderRequested(order, paymentResult.TransactionId);
+                var invoiceOutbox = CheckoutOutboxEventFactory.CreateInvoiceGenerationRequested(order);
+                var emailOutbox = CheckoutOutboxEventFactory.CreateEmailNotificationRequested(order);
 
-            order.Status = OrderStatus.Processing;
-            order.CheckedOutAt = DateTime.UtcNow;
+                await _unitOfWork.OutboxEvents.AddAsync(productionOutbox, ct);
+                await _unitOfWork.OutboxEvents.AddAsync(invoiceOutbox, ct);
+                await _unitOfWork.OutboxEvents.AddAsync(emailOutbox, ct);
 
-            productionOutbox = CheckoutOutboxEventFactory.CreateProductionOrderRequested(order, paymentResult.TransactionId);
-            invoiceOutbox = CheckoutOutboxEventFactory.CreateInvoiceGenerationRequested(order);
-            emailOutbox = CheckoutOutboxEventFactory.CreateEmailNotificationRequested(order);
-
-            await _unitOfWork.OutboxEvents.AddAsync(productionOutbox, cancellationToken);
-
-            await _unitOfWork.OutboxEvents.AddAsync(invoiceOutbox, cancellationToken);
-
-            await _unitOfWork.OutboxEvents.AddAsync(emailOutbox, cancellationToken);
-
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.SaveChangesAsync(ct);
+            }, cancellationToken);
 
             return new CheckoutOrderResponse
             {
@@ -147,9 +158,17 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
                 Message = "Payment successful"
             };
         }
-        catch (Exception ex) when (paymentResult.IsSuccess)
+        catch (InvalidOperationException)
         {
-            // Can be done also with outbox pattern, worker who receiving compensate message will retry handling it until compensation succeeds, but for simplicity we do it here directly.
+            throw;
+        }
+        catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException")
+        {
+            throw new InvalidOperationException("Order is being checked out concurrently. Please retry.", ex);
+        }
+        catch (Exception ex)
+        {
+            // Compensatation should be done with outbox pattern to make sure worker can retry in case of transient failure. We implement it directly here for simplicity.
             var compensation = await paymentProcessor.CompensateAsync(
                 new PaymentCompensationRequest
                 {
@@ -161,45 +180,84 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
                 },
                 cancellationToken);
 
-            order.Status = OrderStatus.PaymentFailed;
-
-            // Prevent accidental persistence of pending outbox events if SaveChanges failed earlier.
-            if (productionOutbox != null)
-                await _unitOfWork.OutboxEvents.DeleteAsync(productionOutbox, cancellationToken);
-
-            if (invoiceOutbox != null)
-                await _unitOfWork.OutboxEvents.DeleteAsync(invoiceOutbox, cancellationToken);
-
-            if (emailOutbox != null)
-                await _unitOfWork.OutboxEvents.DeleteAsync(emailOutbox, cancellationToken);
-
-            if (order.Payment != null)
+            await _unitOfWork.ExecuteTransactionAsync(async ct =>
             {
-                order.Payment.Status = compensation.IsSuccess ? PaymentStatus.Refunded : PaymentStatus.Failed;
-                order.Payment.FailureReason = compensation.IsSuccess
-                    ? "Payment compensated due to internal failure"
-                    : compensation.FailureReason ?? "Compensation failed after internal error";
-                order.Payment.ProcessedAt = DateTime.UtcNow;
-            }
+                order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, ct);
 
-            try
-            {
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-            }
-            catch
-            {
-            }
+                if (order.Payment != null)
+                {
+                    order.Payment.Status = compensation.IsSuccess ? PaymentStatus.Refunded : PaymentStatus.Failed;
+                    order.Payment.FailureReason = compensation.IsSuccess
+                        ? "Payment compensated due to internal failure"
+                        : compensation.FailureReason ?? "Compensation failed after internal error";
+                    order.Payment.ProcessedAt = DateTime.UtcNow;
+                }
 
-            if (compensation.IsSuccess)
-            {
-                throw new InvalidOperationException(
-                    "Checkout failed due to internal error. Payment has been compensated.",
-                    ex);
-            }
+                order.Status = OrderStatus.PaymentFailed;
+                await _unitOfWork.SaveChangesAsync(ct);
+            }, cancellationToken);
 
             throw new InvalidOperationException(
-                "Checkout failed due to internal error and payment compensation failed.",
+                compensation.IsSuccess
+                    ? "Checkout failed due to internal error. Payment has been compensated."
+                    : "Checkout failed due to internal error and payment compensation failed.",
                 ex);
         }
+    }
+
+    private static void UpsertPayment(Order order, Payment payment, string idempotencyKey)
+    {
+        if (order.Payment == null)
+        {
+            order.Payment = payment;
+            return;
+        }
+
+        // One-to-one Payment row already exists -> update latest attempt result
+        order.Payment.PaymentMethod = payment.PaymentMethod;
+        order.Payment.TransactionId = payment.TransactionId;
+        order.Payment.Status = payment.Status;
+        order.Payment.FailureReason = payment.FailureReason;
+        order.Payment.ProcessedAt = payment.ProcessedAt;
+        order.Payment.Amount = payment.Amount;
+        order.Payment.IdempotencyKey = idempotencyKey;
+    }
+
+    private static CheckoutOrderResponse? GetIdempotentResponse(Order order, CheckoutOrderCommand request)
+    {
+        if (order.Payment?.IdempotencyKey == request.IdempotencyKey)
+        {
+            return new CheckoutOrderResponse
+            {
+                OrderId = request.OrderId,
+                TransactionId = order.Payment.TransactionId,
+                Message = order.Payment.Status == PaymentStatus.Succeeded
+                    ? "Payment already processed"
+                    : "Payment request already processed"
+            };
+        }
+
+        return null;
+    }
+
+    private static void ValidateCheckoutEligibility(Order order)
+    {
+        var canAttemptPayment = order.Status == OrderStatus.Draft || order.Status == OrderStatus.PaymentFailed;
+        if (!canAttemptPayment)
+            throw new InvalidOperationException("Order is not eligible for payment");
+
+        if (order.Payment?.Status == PaymentStatus.Succeeded)
+            throw new InvalidOperationException("Order has already been paid successfully");
+    }
+
+    private static void ValidateCheckoutEligibilityForTransition(Order order)
+    {
+        ValidateCheckoutEligibility(order);
+    }
+
+    private async Task<Order> LoadOrderOrThrowAsync(Guid customerId, Guid orderId, CancellationToken cancellationToken)
+    {
+        return await _unitOfWork.Orders.GetByIdAndCustomerIdAsync(customerId, orderId, cancellationToken)
+            ?? throw new InvalidOperationException("Order not found");
     }
 }
