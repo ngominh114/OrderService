@@ -1,11 +1,15 @@
 namespace OrderService.API.Workers;
 
-using OrderService.Domain.Constants;
+using OrderService.Domain.Entities;
 using OrderService.Domain.Interfaces;
 using OrderService.Infrastructure.Messaging;
 
 public class OutboxWorker : BackgroundService
 {
+    private const int BatchSize = 50;
+    private const string OrderEventsTopicName = "order-events";
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
+
     private readonly ILogger<OutboxWorker> _logger;
     private readonly IServiceProvider _serviceProvider;
 
@@ -27,148 +31,58 @@ public class OutboxWorker : BackgroundService
                 var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 var mqService = scope.ServiceProvider.GetRequiredService<IMessageQueueService>();
 
-                // Get all pending outbox events
-                var pendingEvents = await unitOfWork.OutboxEvents.GetAsync(e => !e.IsProcessed);
+                var pendingEvents = (await unitOfWork.OutboxEvents.GetAsync(e => !e.IsProcessed))
+                    .OrderBy(e => e.CreatedAt)
+                    .Take(BatchSize)
+                    .ToList();
 
-                foreach (var evt in pendingEvents)
+                foreach (var outboxEvent in pendingEvents)
                 {
                     try
                     {
-                        await ProcessOutboxEventAsync(evt, unitOfWork, mqService, stoppingToken);
+                        await ProcessOutboxEventAsync(outboxEvent, unitOfWork, mqService, stoppingToken);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error processing outbox event {EventId}", evt.Id);
+                        _logger.LogError(ex, "Error processing outbox event {EventId}", outboxEvent.Id);
                     }
                 }
 
-                await Task.Delay(3000, stoppingToken);
+                await Task.Delay(PollInterval, stoppingToken);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Outbox Worker error");
-                await Task.Delay(3000, stoppingToken);
+                await Task.Delay(PollInterval, stoppingToken);
             }
         }
     }
 
     private async Task ProcessOutboxEventAsync(
-        OrderService.Domain.Entities.OutboxEvent evt,
+        OutboxEvent outboxEvent,
         IUnitOfWork unitOfWork,
         IMessageQueueService mqService,
         CancellationToken stoppingToken)
     {
-        var order = await unitOfWork.Orders.GetByIdAsync(evt.AggregateId);
-        if (order == null) return;
-
-        switch (evt.EventType)
+        var outboxEnvelope = new
         {
-            case OutboxEventTypes.PaymentSucceeded: // backward compatibility for older events
-                await PublishEmailNotificationAsync(order, mqService, stoppingToken);
-                await PublishInvoiceGenerationAsync(order, mqService, stoppingToken);
-                await PublishProductionOrderAsync(order, mqService, stoppingToken);
-                break;
-            case OutboxEventTypes.EmailNotificationRequested:
-                await PublishEmailNotificationAsync(order, mqService, stoppingToken);
-                break;
-            case OutboxEventTypes.InvoiceGenerationRequested:
-                await PublishInvoiceGenerationAsync(order, mqService, stoppingToken);
-                break;
-            case OutboxEventTypes.ProductionOrderRequested:
-                await PublishProductionOrderAsync(order, mqService, stoppingToken);
-                break;
-        }
+            MessageId = outboxEvent.Id,
+            AggregateId = outboxEvent.AggregateId,
+            EventType = outboxEvent.EventType,
+            Payload = outboxEvent.Payload,
+            OccurredAt = outboxEvent.CreatedAt
+        };
 
-        evt.IsProcessed = true;
-        evt.ProcessedAt = DateTime.UtcNow;
+        await mqService.PublishAsync(OrderEventsTopicName, outboxEnvelope, stoppingToken);
+        _logger.LogInformation(
+            "Outbox event {EventId} published to topic {TopicName}",
+            outboxEvent.Id,
+            OrderEventsTopicName);
+
+        // Mark processed only after publish succeeds.
+        outboxEvent.IsProcessed = true;
+        outboxEvent.ProcessedAt = DateTime.UtcNow;
         await unitOfWork.SaveChangesAsync(stoppingToken);
-        _logger.LogInformation("Outbox event {EventId} processed", evt.Id);
+        _logger.LogInformation("Outbox event {EventId} processed", outboxEvent.Id);
     }
-
-    private async Task PublishEmailNotificationAsync(
-        OrderService.Domain.Entities.Order order,
-        IMessageQueueService mqService,
-        CancellationToken stoppingToken)
-    {
-        var message = new EmailNotificationMessage
-        {
-            OrderId = order.Id,
-            CustomerId = order.CustomerId,
-            Name = order.DisplayName,
-            Amount = order.Payment?.Amount.Amount ?? 0,
-            Currency = order.Payment?.Amount.Currency ?? "USD"
-        };
-
-        await mqService.PublishAsync("email-notifications", message, stoppingToken);
-        _logger.LogInformation("Email notification queued for order {OrderId}", order.Id);
-    }
-
-    private async Task PublishInvoiceGenerationAsync(
-        OrderService.Domain.Entities.Order order,
-        IMessageQueueService mqService,
-        CancellationToken stoppingToken)
-    {
-        var message = new InvoiceGenerationMessage
-        {
-            OrderId = order.Id,
-            Name = order.DisplayName,
-            Amount = order.Payment?.Amount.Amount ?? 0,
-            Currency = order.Payment?.Amount.Currency ?? "USD"
-        };
-
-        await mqService.PublishAsync("invoice-generation", message, stoppingToken);
-        _logger.LogInformation("Invoice generation queued for order {OrderId}", order.Id);
-    }
-
-    private async Task PublishProductionOrderAsync(
-        OrderService.Domain.Entities.Order order,
-        IMessageQueueService mqService,
-        CancellationToken stoppingToken)
-    {
-        var message = new ProductionOrderMessage
-        {
-            OrderId = order.Id,
-            Name = order.DisplayName,
-            CustomerId = order.CustomerId,
-            Amount = order.Payment?.Amount.Amount ?? 0,
-            Currency = order.Payment?.Amount.Currency ?? "USD",
-            Items = new List<ProductionItemMessage>()
-        };
-
-        await mqService.PublishAsync("production-orders", message, stoppingToken);
-        _logger.LogInformation("Production order queued for {OrderId}", order.Id);
-    }
-}
-
-public class EmailNotificationMessage
-{
-    public Guid OrderId { get; set; }
-    public Guid CustomerId { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public decimal Amount { get; set; }
-    public string Currency { get; set; } = "USD";
-}
-
-public class InvoiceGenerationMessage
-{
-    public Guid OrderId { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public decimal Amount { get; set; }
-    public string Currency { get; set; } = "USD";
-}
-
-public class ProductionOrderMessage
-{
-    public Guid OrderId { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public Guid CustomerId { get; set; }
-    public decimal Amount { get; set; }
-    public string Currency { get; set; } = "USD";
-    public List<ProductionItemMessage> Items { get; set; } = [];
-}
-
-public class ProductionItemMessage
-{
-    public string ItemId { get; set; } = string.Empty;
-    public int Quantity { get; set; }
 }
