@@ -1,7 +1,9 @@
 namespace OrderService.Application.Mappings;
 
 using OrderService.Application.DTOs;
+using OrderService.Application.Interfaces;
 using OrderService.Domain.Entities;
+using OrderService.Domain.Enums;
 
 public static class MappingExtensions
 {
@@ -41,6 +43,27 @@ public static class MappingExtensions
             InvoiceNumber = invoice.InvoiceNumber,
             Amount = invoice.Amount,
             IssuedAt = invoice.IssuedAt
+        };
+    }
+
+    public static Payment ToPaymentEntity(
+        this PaymentProcessingResult result,
+        Guid orderId,
+        string paymentMethod,
+        string idempotencyKey,
+        decimal amount,
+        string currency)
+    {
+        return new Payment
+        {
+            OrderId = orderId,
+            Amount = new(amount, currency),
+            PaymentMethod = paymentMethod,
+            IdempotencyKey = idempotencyKey,
+            TransactionId = result.TransactionId,
+            Status = result.IsSuccess ? PaymentStatus.Succeeded : PaymentStatus.Failed,
+            FailureReason = result.FailureReason,
+            ProcessedAt = DateTime.UtcNow
         };
     }
 }

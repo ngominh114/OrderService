@@ -10,6 +10,7 @@ public class Payment
     public Money Amount { get; set; } = new(0);
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
     public string PaymentMethod { get; set; } = string.Empty;
+    public string? IdempotencyKey { get; set; }
     public string TransactionId { get; set; } = string.Empty;
     public string? FailureReason { get; set; }
     public DateTime? ProcessedAt { get; set; }

@@ -116,6 +116,9 @@ public class ApplicationDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(50);
 
+            entity.Property(e => e.IdempotencyKey)
+                .HasMaxLength(100);
+
             entity.Property(e => e.TransactionId)
                 .IsRequired()
                 .HasMaxLength(256);
@@ -140,6 +143,11 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.OrderId)
                 .IsUnique()
                 .HasDatabaseName("IX_Payment_OrderId");
+
+            entity.HasIndex(e => e.IdempotencyKey)
+                .IsUnique()
+                .HasFilter("[IdempotencyKey] IS NOT NULL")
+                .HasDatabaseName("IX_Payment_IdempotencyKey");
         });
 
         // ===== INVOICE CONFIGURATION =====
