@@ -23,7 +23,11 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet("me")]
-    public async Task<IActionResult> GetMe([FromQuery] string? orderName, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetMe(
+        [FromQuery] string? orderName,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
     {
         var customerId = User.FindFirst(JwtClaimTypes.Subject)?.Value;
         if (string.IsNullOrEmpty(customerId))
@@ -32,8 +36,13 @@ public class OrdersController : ControllerBase
         var query = new SearchOrdersQuery
         {
             CustomerId = Guid.Parse(customerId),
-            OrderName = orderName
+            OrderName = orderName,
+            Page = page,
+            PageSize = pageSize
         };
+
+        query.Normalize();
+
         var result = await _mediator.Send(query, cancellationToken);
         return Ok(result);
     }

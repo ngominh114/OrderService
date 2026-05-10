@@ -2,6 +2,8 @@ namespace OrderService.Application.Features.Orders.Queries.SearchOrders;
 
 using MediatR;
 using OrderService.Application.DTOs;
+using OrderService.Application.Mappings;
+using OrderService.Domain.Entities;
 using OrderService.Domain.Interfaces;
 
 public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, List<OrderDto>>
@@ -15,20 +17,16 @@ public class SearchOrdersQueryHandler : IRequestHandler<SearchOrdersQuery, List<
 
     public async Task<List<OrderDto>> Handle(SearchOrdersQuery request, CancellationToken cancellationToken)
     {
-        var orders = await _unitOfWork.Orders.SearchByCustomerIdAsync(
-            request.CustomerId,
-            request.OrderName,
-            cancellationToken);
-
-        return [.. orders.Select(o => new OrderDto
+        var criteria = new OrderSearchCriteria
         {
-            Id = o.Id,
-            DisplayName = o.DisplayName,
-            Price = o.Cost.Amount,
-            CustomerId = o.CustomerId,
-            Status = o.Status.ToString(),
-            CreatedAt = o.CreatedAt,
-            CheckedOutAt = o.CheckedOutAt
-        })];
+            CustomerId = request.CustomerId,
+            OrderName = request.OrderName,
+            Page = request.Page,
+            PageSize = request.PageSize
+        };
+
+        var orders = await _unitOfWork.Orders.SearchAsync(criteria, cancellationToken);
+
+        return [.. orders.Select(o => o.ToDto())];
     }
 }
