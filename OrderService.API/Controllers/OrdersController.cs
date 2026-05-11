@@ -12,7 +12,7 @@ using OrderService.Application.Features.Orders.Queries.SearchOrders;
 [ApiController]
 [Route("api/[controller]")]
 [ApiVersion(ApiVersions.V1)]
-[Authorize(Policy = "OrderRead")]
+[Authorize(Policy = AuthorizationPolicies.OrderRead)]
 public class OrdersController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -50,7 +50,7 @@ public class OrdersController : ControllerBase
     }
 
     [HttpPost("checkout")]
-    [Authorize(Policy = "OrderCheckout")]
+    [Authorize(Policy = AuthorizationPolicies.OrderCheckout)]
     public async Task<IActionResult> Checkout(
         [FromBody] CheckoutOrderCommand command,
         CancellationToken cancellationToken)
