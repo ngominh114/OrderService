@@ -1,4 +1,5 @@
 using OrderService.API.Extensions;
+using OrderService.API.Middleware;
 using OrderService.Application.Extensions;
 using OrderService.Infrastructure.Extensions;
 using OrderService.Infrastructure.Persistence;
@@ -32,6 +33,7 @@ var app = builder.Build();
 await app.InitializeDatabaseAsync();
 
 app.UseSwaggerDocumentation();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();

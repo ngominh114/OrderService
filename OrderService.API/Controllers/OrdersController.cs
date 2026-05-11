@@ -33,9 +33,12 @@ public class OrdersController : ControllerBase
         if (string.IsNullOrEmpty(customerId))
             return Unauthorized("Customer ID not found in token");
 
+        if (!Guid.TryParse(customerId, out var customerGuid))
+            return Unauthorized("Invalid customer ID in token");
+
         var query = new SearchOrdersQuery
         {
-            CustomerId = Guid.Parse(customerId),
+            CustomerId = customerGuid,
             OrderName = orderName,
             Page = page,
             PageSize = pageSize
@@ -56,7 +59,10 @@ public class OrdersController : ControllerBase
         if (string.IsNullOrEmpty(customerId))
             return Unauthorized("Customer ID not found in token");
 
-        command.CustomerId = Guid.Parse(customerId);
+        if (!Guid.TryParse(customerId, out var customerGuid))
+            return Unauthorized("Invalid customer ID in token");
+
+        command.CustomerId = customerGuid;
 
         var result = await _mediator.Send(command, cancellationToken);
         return Ok(result);

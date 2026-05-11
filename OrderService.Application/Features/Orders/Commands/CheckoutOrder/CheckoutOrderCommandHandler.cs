@@ -5,6 +5,7 @@ using OrderService.Application.Interfaces;
 using OrderService.Application.Mappings;
 using OrderService.Domain.Entities;
 using OrderService.Domain.Enums;
+using OrderService.Domain.Exceptions;
 using OrderService.Domain.Interfaces;
 
 public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand, CheckoutOrderResponse>
@@ -24,9 +25,17 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
     {
         var order = await LoadOrderOrThrowAsync(request.CustomerId, request.OrderId, cancellationToken);
 
-        var idempotentResponse = GetIdempotentResponse(order, request);
-        if (idempotentResponse != null)
-            return idempotentResponse;
+        if (order.Payment?.IdempotencyKey == request.IdempotencyKey)
+        {
+            return new CheckoutOrderResponse
+            {
+                OrderId = request.OrderId,
+                TransactionId = order.Payment.TransactionId,
+                Message = order.Payment.Status == PaymentStatus.Succeeded
+                    ? "Payment already processed"
+                    : "Payment request already processed"
+            };
+        }
 
         ValidateCheckoutEligibility(order);
 
@@ -37,7 +46,7 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
         }
         catch (NotSupportedException ex)
         {
-            throw new InvalidOperationException("Unsupported payment method", ex);
+            throw new ArgumentException("Unsupported payment method", nameof(request.PaymentMethod), ex);
         }
 
         await _unitOfWork.ExecuteTransactionAsync(async ct =>
@@ -127,7 +136,7 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
                 await _unitOfWork.SaveChangesAsync(ct);
             }, cancellationToken);
 
-            throw new InvalidOperationException(paymentResult.FailureReason ?? "Payment failed");
+            throw new ArgumentException(paymentResult.FailureReason ?? "Payment failed");
         }
 
         try
@@ -158,13 +167,13 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
                 Message = "Payment successful"
             };
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is NotFoundException or ArgumentException or ConflictException)
         {
             throw;
         }
         catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException")
         {
-            throw new InvalidOperationException("Order is being checked out concurrently. Please retry.", ex);
+            throw new ConflictException("Order is being checked out concurrently. Please retry.", ex);
         }
         catch (Exception ex)
         {
@@ -223,31 +232,14 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
         order.Payment.IdempotencyKey = idempotencyKey;
     }
 
-    private static CheckoutOrderResponse? GetIdempotentResponse(Order order, CheckoutOrderCommand request)
-    {
-        if (order.Payment?.IdempotencyKey == request.IdempotencyKey)
-        {
-            return new CheckoutOrderResponse
-            {
-                OrderId = request.OrderId,
-                TransactionId = order.Payment.TransactionId,
-                Message = order.Payment.Status == PaymentStatus.Succeeded
-                    ? "Payment already processed"
-                    : "Payment request already processed"
-            };
-        }
-
-        return null;
-    }
-
     private static void ValidateCheckoutEligibility(Order order)
     {
         var canAttemptPayment = order.Status == OrderStatus.Draft || order.Status == OrderStatus.PaymentFailed;
         if (!canAttemptPayment)
-            throw new InvalidOperationException("Order is not eligible for payment");
+            throw new ConflictException("Order is not eligible for payment");
 
         if (order.Payment?.Status == PaymentStatus.Succeeded)
-            throw new InvalidOperationException("Order has already been paid successfully");
+            throw new ConflictException("Order has already been paid successfully");
     }
 
     private static void ValidateCheckoutEligibilityForTransition(Order order)
@@ -258,6 +250,6 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
     private async Task<Order> LoadOrderOrThrowAsync(Guid customerId, Guid orderId, CancellationToken cancellationToken)
     {
         return await _unitOfWork.Orders.GetByIdAndCustomerIdAsync(customerId, orderId, cancellationToken)
-            ?? throw new InvalidOperationException("Order not found");
+            ?? throw new NotFoundException("Order not found");
     }
 }
